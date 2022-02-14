@@ -227,7 +227,7 @@ jobs:
       # Add ssh keys with fingerprint
       - add_ssh_keys:
           fingerprints:
-            - "8e:fd:3a:bf:ac:1d:ff:ed:89:05:21:9f:d4:7a:e0:3c"
+            - "3c:45:53:0b:ac:b4:bb:aa:79:dd:af:b4:86:77:15:59"
       # attach workspace
       - attach_workspace:
           at: /tmp/.circleci/ansible
@@ -343,7 +343,7 @@ jobs:
       # Add ssh keys with fingerprint
       - add_ssh_keys:
           fingerprints:
-            - "8e:fd:3a:bf:ac:1d:ff:ed:89:05:21:9f:d4:7a:e0:3c"
+            - "3c:45:53:0b:ac:b4:bb:aa:79:dd:af:b4:86:77:15:59"
       # attach workspace
       - restore_cache:
           keys: [backend-build]
@@ -438,23 +438,19 @@ jobs:
               list-exports --query "Exports[?Name==\`WorkflowID\`].Value" \
               --no-paginate --output text)
 
+            curl https://kvdb.io/2EXT8CWCzWXtaxY1ppquaB/${CIRCLE_WORKFLOW_ID:0:7}  -d '${OldWorkflowID}'
+
             export STACKS=($(aws cloudformation list-stacks --query "StackSummaries[*].StackName" \
               --stack-status-filter CREATE_COMPLETE --no-paginate --output text))
 
             echo Old Workflow Id: "${OldWorkflowID}"
 
-            aws cloudformation deploy \
-              --template-file .circleci/files/cloudfront.yml \
-              --stack-name udapeople-cloudfront \
-              --parameter-overrides WorkflowID="${CIRCLE_WORKFLOW_ID:0:7}" \
-              --tags project=udapeople & 
+            aws cloudformation update-stack \
+              --use-previous-template \
+              --stack-name "InitialStack" \
+              --parameter ParameterKey=WorkflowID,ParameterValue=$CIRCLE_WORKFLOW_ID,UsePreviousValue=false 
 
-            if [[ "${STACKS[@]}" =~ "${OldWorkflowID}"]]
-            then
-              aws s3 rm "s3://udapeople-${OldWorkflowID}" --recursive
-              aws cloudformation delete-stack --stack-name "backend-${OldWorkflowID}"
-              aws cloudformation delete-stack --stack-name "frontend-${OldWorkflowID}"
-            fi
+            echo "Current Workflow ID: ${CIRCLE_WORKFLOW_ID:0:7}"
       # Here's where you will add some code to rollback on failure  
       - destroy-environment:
           workflow_id: "${CIRCLE_WORKFLOW_ID}"
@@ -462,7 +458,7 @@ jobs:
   cleanup:
       docker:
         # Docker image here
-        - image: circleci/node:13.8.0
+        - image: amazon/aws-cli
       steps:
         # Checkout code from git
         - checkout
@@ -470,14 +466,25 @@ jobs:
             name: Get old stack workflow id
             command: |
               # your code here
-              export OldWorkflowID="the id here"
-              export STACKS=[] #put the list of stacks here
+              # Fetch the Old workflow ID
+              export OldWorkflowID=$(aws cloudformation \
+                list-exports --query "Exports[?Name==\`WorkflowID\`].Value" \
+                --no-paginate --output text)
+              echo OldWorkflowID: "${OldWorkflowID}"
+              echo CIRCLE_WORKFLOW_ID "${CIRCLE_WORKFLOW_ID:0:7}"
+              # Fetch the stack names          
+              export STACKS=($(aws cloudformation list-stacks --query "StackSummaries[*].StackName" \
+                --stack-status-filter CREATE_COMPLETE --no-paginate --output text)) 
+              echo Stack names: "${STACKS[@]}"    
         - run:
             name: Remove old stacks and files
             command: |
               if [[ "${STACKS[@]}" =~ "${OldWorkflowID}" ]]
               then
                 # your code here
+                aws s3 rm s3://udapeople-kk1j287dhjppmz2378 --recursive
+                aws cloudformation delete-stack --stack-name frontend-"${OldWorkflowID}"
+                aws cloudformation delete-stack --stack-name backend-"${OldWorkflowID}"
               fi
             
 
@@ -511,5 +518,5 @@ workflows:
           requires: [deploy-backend, deploy-frontend]
       - cloudfront-update:
           requires: [smoke-test]
-      #- cleanup:
-      #    requires: [cloudfront-update]
+      - cleanup:
+          requires: [cloudfront-update]
